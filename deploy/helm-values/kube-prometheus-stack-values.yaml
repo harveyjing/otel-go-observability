@@ -1,0 +1,59 @@
+# Pinned chart version: prometheus-community/kube-prometheus-stack 65.5.0
+# Enables Prometheus remote-write receiver (the Collector pushes via remote-write)
+# and provisions Tempo + Loki datasources in Grafana.
+
+defaultRules:
+  create: false           # cut noise for a POC
+alertmanager:
+  enabled: false
+nodeExporter:
+  enabled: false
+kubeStateMetrics:
+  enabled: true
+prometheusOperator:
+  admissionWebhooks:
+    enabled: false        # avoid cert-manager dep for a POC
+  tls:
+    enabled: false        # the operator's own TLS would also require the admission secret
+
+
+prometheus:
+  prometheusSpec:
+    enableRemoteWriteReceiver: true
+    retention: 6h
+    scrapeInterval: 30s
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+grafana:
+  adminPassword: prom-operator
+  defaultDashboardsEnabled: false
+  service:
+    type: NodePort
+    nodePort: 30300
+  additionalDataSources:
+    - name: Tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability:3100
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: Loki
+          tags: ['service.name']
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.observability:3100
+      jsonData:
+        derivedFields:
+          # OTel writes trace_id as structured metadata on the LogRecord (not in the body).
+          # Loki exposes structured metadata as label-like fields; matcherType:label pulls it.
+          - name: TraceID
+            matcherType: label
+            matcherRegex: trace_id
+            url: '$${__value.raw}'
+            datasourceUid: Tempo
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard

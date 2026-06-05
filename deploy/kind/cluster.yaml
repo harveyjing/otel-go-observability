@@ -1,0 +1,12 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: otelpoc
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30300   # Grafana NodePort
+        hostPort: 3000
+        protocol: TCP
+      - containerPort: 30317   # OTel Collector OTLP gRPC NodePort
+        hostPort: 4317
+        protocol: TCP

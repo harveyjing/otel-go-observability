@@ -1,0 +1,77 @@
+# Pinned chart version: open-telemetry/opentelemetry-collector 0.108.0
+# Service DNS produced: <release-name>-opentelemetry-collector.<namespace>
+# We install with release name "otel-collector" -> svc: otel-collector-opentelemetry-collector
+
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+service:
+  type: NodePort
+
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    nodePort: 30317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+  metrics:    { enabled: false }
+  jaeger-compact: { enabled: false }
+  jaeger-thrift:  { enabled: false }
+  jaeger-grpc:    { enabled: false }
+  zipkin:         { enabled: false }
+
+# Disable the default Prometheus self-scrape config (avoids noisy defaults).
+presets:
+  hostMetrics:           { enabled: false }
+  kubernetesAttributes:  { enabled: true }
+  kubeletMetrics:        { enabled: false }
+  logsCollection:        { enabled: false }
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  processors:
+    batch: {}
+    resourcedetection:
+      detectors: [env, system]
+  exporters:
+    otlp/tempo:
+      endpoint: tempo.observability:4317
+      tls:
+        insecure: true
+    prometheusremotewrite:
+      endpoint: http://kube-prometheus-stack-prometheus.observability:9090/api/v1/write
+      tls:
+        insecure: true
+    otlphttp/loki:
+      endpoint: http://loki.observability:3100/otlp
+      tls:
+        insecure: true
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [batch, resourcedetection]
+        exporters: [otlp/tempo]
+      metrics:
+        receivers: [otlp]
+        processors: [batch, resourcedetection]
+        exporters: [prometheusremotewrite]
+      logs:
+        receivers: [otlp]
+        processors: [batch, resourcedetection]
+        exporters: [otlphttp/loki]
