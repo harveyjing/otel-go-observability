@@ -1,0 +1,7 @@
+# compiled binaries
+app/backend
+app/frontend
+/tmp/dice-*
+
+# macOS
+.DS_Store

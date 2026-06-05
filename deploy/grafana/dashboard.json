@@ -1,0 +1,49 @@
+{
+  "title": "OTel POC",
+  "uid": "otelpoc",
+  "schemaVersion": 39,
+  "version": 2,
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate (req/s) by service — OTel SDK/agent (http_server_request_duration_seconds)",
+      "targets": [
+        { "expr": "sum by (job) (rate(http_server_request_duration_seconds_count[1m]))", "legendFormat": "{{job}}" }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate (req/s) — Spring/Actuator (http_server_requests_milliseconds)",
+      "targets": [
+        { "expr": "sum by (job, uri) (rate(http_server_requests_milliseconds_count[1m]))", "legendFormat": "{{job}} {{uri}}" }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency (OTel SDK/agent) by service",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, job) (rate(http_server_request_duration_seconds_bucket[1m])))", "legendFormat": "{{job}}" }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency (Spring/Actuator)",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, job, uri) (rate(http_server_requests_milliseconds_bucket[1m])))", "legendFormat": "{{job}} {{uri}}" }
+      ],
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "JVM heap used",
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{jvm_memory_type=\"heap\"}", "legendFormat": "{{job}} {{jvm_memory_pool_name}}" }
+      ],
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 }
+    }
+  ]
+}
