@@ -11,29 +11,34 @@ import (
 	"syscall"
 	"time"
 
-	"dice/internal/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"dice/internal/telemetry"
 )
 
-var backendClient = &http.Client{Timeout: 10 * time.Second}
+var backendClient = &http.Client{
+	Timeout:   10 * time.Second,
+	Transport: otelhttp.NewTransport(http.DefaultTransport),
+}
 
 func rolldiceHandler(backendAddr string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		outReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, backendAddr+"/roll", nil)
 		if err != nil {
-			slog.Error("build request failed", "err", err)
+			slog.ErrorContext(r.Context(), "build request failed", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		resp, err := backendClient.Do(outReq)
 		if err != nil {
-			slog.Error("backend call failed", "err", err, "backend", backendAddr)
+			slog.ErrorContext(r.Context(), "backend call failed", "err", err, "backend", backendAddr)
 			http.Error(w, "backend unavailable", http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			slog.Error("backend returned non-200", "status", resp.StatusCode)
+			slog.ErrorContext(r.Context(), "backend returned non-200", "status", resp.StatusCode)
 			http.Error(w, "backend error", http.StatusBadGateway)
 			return
 		}
@@ -42,7 +47,7 @@ func rolldiceHandler(backendAddr string) http.HandlerFunc {
 			Result int `json:"result"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			slog.Error("decode failed", "err", err)
+			slog.ErrorContext(r.Context(), "decode failed", "err", err)
 			http.Error(w, "invalid backend response", http.StatusInternalServerError)
 			return
 		}
@@ -52,7 +57,19 @@ func rolldiceHandler(backendAddr string) http.HandlerFunc {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	ctx := context.Background()
+	shutdown, err := telemetry.Setup(ctx, "frontend")
+	if err != nil {
+		slog.Error("telemetry setup", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdown(shutCtx); err != nil {
+			slog.Error("telemetry shutdown", "err", err)
+		}
+	}()
 
 	port := os.Getenv("FRONTEND_PORT")
 	if port == "" {
@@ -68,7 +85,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    ":" + port,
-		Handler: middleware.Log(mux),
+		Handler: otelhttp.NewHandler(mux, "frontend"),
 	}
 
 	go func() {
@@ -83,9 +100,9 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
 		os.Exit(1)
 	}

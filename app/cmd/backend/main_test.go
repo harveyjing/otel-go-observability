@@ -5,12 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"go.opentelemetry.io/otel"
 )
 
 func TestRollHandler_statusOK(t *testing.T) {
+	counter, _ := otel.Meter("test").Int64Counter("test")
 	req := httptest.NewRequest(http.MethodGet, "/roll", nil)
 	rw := httptest.NewRecorder()
-	rollHandler(rw, req)
+	rollHandler(counter)(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rw.Code)
@@ -18,9 +21,10 @@ func TestRollHandler_statusOK(t *testing.T) {
 }
 
 func TestRollHandler_contentType(t *testing.T) {
+	counter, _ := otel.Meter("test").Int64Counter("test")
 	req := httptest.NewRequest(http.MethodGet, "/roll", nil)
 	rw := httptest.NewRecorder()
-	rollHandler(rw, req)
+	rollHandler(counter)(rw, req)
 
 	ct := rw.Header().Get("Content-Type")
 	if ct != "application/json" {
@@ -29,10 +33,11 @@ func TestRollHandler_contentType(t *testing.T) {
 }
 
 func TestRollHandler_resultInRange(t *testing.T) {
+	counter, _ := otel.Meter("test").Int64Counter("test")
 	for range 100 {
 		req := httptest.NewRequest(http.MethodGet, "/roll", nil)
 		rw := httptest.NewRecorder()
-		rollHandler(rw, req)
+		rollHandler(counter)(rw, req)
 
 		var resp rollResponse
 		if err := json.NewDecoder(rw.Body).Decode(&resp); err != nil {
