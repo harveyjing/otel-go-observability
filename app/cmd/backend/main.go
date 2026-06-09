@@ -38,8 +38,17 @@ type rollResponse struct {
 
 func rollHandler(counter metric.Int64Counter) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		zap.L().Info("roll request received",
+			zap.Any("ctx", ctx),
+			zap.String("remote_addr", c.RealIP()),
+		)
 		n := dice.Roll()
-		counter.Add(c.Request().Context(), 1, metric.WithAttributes(attribute.Int("result", n)))
+		counter.Add(ctx, 1, metric.WithAttributes(attribute.Int("result", n)))
+		zap.L().Info("dice rolled",
+			zap.Any("ctx", ctx),
+			zap.Int("result", n),
+		)
 		return c.JSON(http.StatusOK, rollResponse{Result: n})
 	}
 }

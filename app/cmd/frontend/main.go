@@ -27,11 +27,19 @@ var backendClient = &http.Client{
 func rolldiceHandler(backendAddr string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
+		zap.L().Info("rolldice request received",
+			zap.Any("ctx", ctx),
+			zap.String("remote_addr", c.RealIP()),
+		)
 		outReq, err := http.NewRequestWithContext(ctx, http.MethodGet, backendAddr+"/roll", nil)
 		if err != nil {
 			zap.L().Error("build request failed", zap.Any("ctx", ctx), zap.Error(err))
 			return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 		}
+		zap.L().Info("forwarding to backend",
+			zap.Any("ctx", ctx),
+			zap.String("backend", backendAddr),
+		)
 		resp, err := backendClient.Do(outReq)
 		if err != nil {
 			zap.L().Error("backend call failed", zap.Any("ctx", ctx), zap.Error(err), zap.String("backend", backendAddr))
@@ -52,6 +60,10 @@ func rolldiceHandler(backendAddr string) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusInternalServerError, "invalid backend response")
 		}
 
+		zap.L().Info("rolldice response",
+			zap.Any("ctx", ctx),
+			zap.Int("result", result.Result),
+		)
 		return c.String(http.StatusOK, fmt.Sprintf("%d\n", result.Result))
 	}
 }
