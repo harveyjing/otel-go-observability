@@ -9,9 +9,9 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Goroutines (backend)",
+      "title": "Goroutines — backend",
       "targets": [
-        { "expr": "process_runtime_go_goroutines{job=\"backend\"}", "legendFormat": "goroutines", "refId": "A" }
+        { "expr": "go_goroutine_count{job=\"backend\"}", "legendFormat": "goroutines", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -28,9 +28,9 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Goroutines (frontend)",
+      "title": "Goroutines — frontend",
       "targets": [
-        { "expr": "process_runtime_go_goroutines{job=\"frontend\"}", "legendFormat": "goroutines", "refId": "A" }
+        { "expr": "go_goroutine_count{job=\"frontend\"}", "legendFormat": "goroutines", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -47,38 +47,52 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Heap In-Use (backend)",
+      "title": "GOMAXPROCS — backend",
       "targets": [
-        { "expr": "process_runtime_go_mem_heap_inuse{job=\"backend\"}", "legendFormat": "heap inuse", "refId": "A" }
+        { "expr": "go_processor_limit{job=\"backend\"}", "legendFormat": "procs", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "area", "justifyMode": "center"
+        "colorMode": "value", "graphMode": "none", "justifyMode": "center"
       },
-      "fieldConfig": { "defaults": { "unit": "bytes" } },
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 }
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 }
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "GC Rate (cycles/s)",
+      "title": "GOGC %",
       "targets": [
-        { "expr": "sum(rate(process_runtime_go_gc_count_total[1m]))", "legendFormat": "gc/s", "refId": "A" }
+        { "expr": "go_config_gogc_percent{job=\"backend\"}", "legendFormat": "GOGC", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "area", "justifyMode": "center"
+        "colorMode": "value", "graphMode": "none", "justifyMode": "center"
       },
-      "fieldConfig": { "defaults": { "unit": "ops", "decimals": 2 } },
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 }
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "GC Goal (heap target)",
+      "targets": [
+        { "expr": "go_memory_gc_goal_bytes{job=\"backend\"}", "legendFormat": "gc goal", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "justifyMode": "center"
+      },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 }
     },
 
     {
-      "id": 5,
+      "id": 6,
       "type": "timeseries",
       "title": "Goroutines by Service",
       "targets": [
-        { "expr": "process_runtime_go_goroutines", "legendFormat": "{{job}}", "refId": "A" }
+        { "expr": "go_goroutine_count", "legendFormat": "{{job}}", "refId": "A" }
       ],
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
@@ -90,106 +104,66 @@
       "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 }
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "timeseries",
-      "title": "Live Heap Objects by Service",
+      "title": "GC Heap Goal by Service",
+      "description": "Target heap size at which the next GC will trigger",
       "targets": [
-        { "expr": "process_runtime_go_mem_live_objects", "legendFormat": "{{job}}", "refId": "A" }
+        { "expr": "go_memory_gc_goal_bytes", "legendFormat": "{{job}}", "refId": "A" }
       ],
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       },
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } }
+        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 10 } }
       },
       "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 }
     },
 
     {
-      "id": 7,
+      "id": 8,
       "type": "timeseries",
-      "title": "Heap Memory — Backend",
-      "description": "heap_sys = reserved from OS; heap_inuse = spans with objects; heap_alloc = allocated & live bytes",
+      "title": "Memory In-Use — Backend (heap vs stack)",
+      "description": "go_memory_used_bytes: 'other' = heap objects + metadata; 'stack' = goroutine stacks",
       "targets": [
-        { "expr": "process_runtime_go_mem_heap_sys{job=\"backend\"}", "legendFormat": "heap_sys", "refId": "A" },
-        { "expr": "process_runtime_go_mem_heap_inuse{job=\"backend\"}", "legendFormat": "heap_inuse", "refId": "B" },
-        { "expr": "process_runtime_go_mem_heap_alloc{job=\"backend\"}", "legendFormat": "heap_alloc", "refId": "C" },
-        { "expr": "process_runtime_go_mem_heap_idle{job=\"backend\"}", "legendFormat": "heap_idle", "refId": "D" },
-        { "expr": "process_runtime_go_mem_heap_released{job=\"backend\"}", "legendFormat": "heap_released", "refId": "E" }
+        { "expr": "go_memory_used_bytes{job=\"backend\", go_memory_type=\"other\"}", "legendFormat": "heap+meta", "refId": "A" },
+        { "expr": "go_memory_used_bytes{job=\"backend\", go_memory_type=\"stack\"}", "legendFormat": "stacks", "refId": "B" }
       ],
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       },
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } }
+        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
       },
       "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 }
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "timeseries",
-      "title": "Heap Memory — Frontend",
+      "title": "Memory In-Use — Frontend (heap vs stack)",
       "targets": [
-        { "expr": "process_runtime_go_mem_heap_sys{job=\"frontend\"}", "legendFormat": "heap_sys", "refId": "A" },
-        { "expr": "process_runtime_go_mem_heap_inuse{job=\"frontend\"}", "legendFormat": "heap_inuse", "refId": "B" },
-        { "expr": "process_runtime_go_mem_heap_alloc{job=\"frontend\"}", "legendFormat": "heap_alloc", "refId": "C" },
-        { "expr": "process_runtime_go_mem_heap_idle{job=\"frontend\"}", "legendFormat": "heap_idle", "refId": "D" },
-        { "expr": "process_runtime_go_mem_heap_released{job=\"frontend\"}", "legendFormat": "heap_released", "refId": "E" }
+        { "expr": "go_memory_used_bytes{job=\"frontend\", go_memory_type=\"other\"}", "legendFormat": "heap+meta", "refId": "A" },
+        { "expr": "go_memory_used_bytes{job=\"frontend\", go_memory_type=\"stack\"}", "legendFormat": "stacks", "refId": "B" }
       ],
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       },
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } }
+        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
       },
       "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 }
     },
 
     {
-      "id": 9,
-      "type": "timeseries",
-      "title": "GC Cycles Rate (cycles/s)",
-      "targets": [
-        { "expr": "rate(process_runtime_go_gc_count_total[1m])", "legendFormat": "{{job}}", "refId": "A" }
-      ],
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
-      },
-      "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "lineWidth": 2 } }
-      },
-      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 }
-    },
-    {
       "id": 10,
       "type": "timeseries",
-      "title": "GC Pause Time Rate (ns/s)",
-      "description": "Rate of nanoseconds spent in GC pauses — proxy for GC pressure",
+      "title": "Allocation Rate — bytes/s",
+      "description": "Rate of bytes allocated (freed memory is GC'd separately)",
       "targets": [
-        { "expr": "rate(process_runtime_go_gc_pause_total_ns_total[1m])", "legendFormat": "{{job}}", "refId": "A" }
-      ],
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
-      },
-      "fieldConfig": {
-        "defaults": { "unit": "ns", "custom": { "lineWidth": 2 } }
-      },
-      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 }
-    },
-
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "Memory Allocation Rate (bytes/s)",
-      "description": "Rate of heap_alloc growth — how fast the app allocates memory",
-      "targets": [
-        { "expr": "rate(process_runtime_go_mem_heap_alloc{job=\"backend\"}[1m])", "legendFormat": "backend alloc rate", "refId": "A" },
-        { "expr": "rate(process_runtime_go_mem_heap_alloc{job=\"frontend\"}[1m])", "legendFormat": "frontend alloc rate", "refId": "B" }
+        { "expr": "rate(go_memory_allocated_bytes_total[1m])", "legendFormat": "{{job}}", "refId": "A" }
       ],
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
@@ -198,23 +172,24 @@
       "fieldConfig": {
         "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 10 } }
       },
-      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 }
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 }
     },
     {
-      "id": 12,
+      "id": 11,
       "type": "timeseries",
-      "title": "CGO Calls Rate (calls/s)",
+      "title": "Allocation Rate — objects/s",
+      "description": "Number of heap objects allocated per second",
       "targets": [
-        { "expr": "rate(process_runtime_go_cgo_calls_total[1m])", "legendFormat": "{{job}}", "refId": "A" }
+        { "expr": "rate(go_memory_allocations_total[1m])", "legendFormat": "{{job}}", "refId": "A" }
       ],
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       },
       "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "lineWidth": 2 } }
+        "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 10 } }
       },
-      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 }
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 }
     }
   ]
 }

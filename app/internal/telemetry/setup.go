@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"go.opentelemetry.io/contrib/bridges/otelzap"
-	goruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
@@ -82,9 +81,6 @@ func Setup(ctx context.Context, serviceName string) (shutdown func(context.Conte
 	// Register all three providers globally
 	otel.SetTracerProvider(tp)
 	otel.SetMeterProvider(mp)
-	if err := goruntime.Start(goruntime.WithMeterProvider(mp)); err != nil {
-		return nil, fmt.Errorf("start runtime metrics: %w", err)
-	}
 	global.SetLoggerProvider(lp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
