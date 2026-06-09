@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.uber.org/zap"
 
 	"dice/internal/telemetry"
 )
@@ -21,38 +24,35 @@ var backendClient = &http.Client{
 	Transport: otelhttp.NewTransport(http.DefaultTransport),
 }
 
-func rolldiceHandler(backendAddr string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		outReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, backendAddr+"/roll", nil)
+func rolldiceHandler(backendAddr string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		outReq, err := http.NewRequestWithContext(ctx, http.MethodGet, backendAddr+"/roll", nil)
 		if err != nil {
-			slog.ErrorContext(r.Context(), "build request failed", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
+			zap.L().Error("build request failed", zap.Any("ctx", ctx), zap.Error(err))
+			return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 		}
 		resp, err := backendClient.Do(outReq)
 		if err != nil {
-			slog.ErrorContext(r.Context(), "backend call failed", "err", err, "backend", backendAddr)
-			http.Error(w, "backend unavailable", http.StatusBadGateway)
-			return
+			zap.L().Error("backend call failed", zap.Any("ctx", ctx), zap.Error(err), zap.String("backend", backendAddr))
+			return echo.NewHTTPError(http.StatusBadGateway, "backend unavailable")
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			slog.ErrorContext(r.Context(), "backend returned non-200", "status", resp.StatusCode)
-			http.Error(w, "backend error", http.StatusBadGateway)
-			return
+			zap.L().Error("backend returned non-200", zap.Any("ctx", ctx), zap.Int("status", resp.StatusCode))
+			return echo.NewHTTPError(http.StatusBadGateway, "backend error")
 		}
 
 		var result struct {
 			Result int `json:"result"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			slog.ErrorContext(r.Context(), "decode failed", "err", err)
-			http.Error(w, "invalid backend response", http.StatusInternalServerError)
-			return
+			zap.L().Error("decode failed", zap.Any("ctx", ctx), zap.Error(err))
+			return echo.NewHTTPError(http.StatusInternalServerError, "invalid backend response")
 		}
 
-		fmt.Fprintln(w, result.Result)
+		return c.String(http.StatusOK, fmt.Sprintf("%d\n", result.Result))
 	}
 }
 
@@ -60,14 +60,14 @@ func main() {
 	ctx := context.Background()
 	shutdown, err := telemetry.Setup(ctx, "frontend")
 	if err != nil {
-		slog.Error("telemetry setup", "err", err)
+		fmt.Fprintf(os.Stderr, "telemetry setup failed: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := shutdown(shutCtx); err != nil {
-			slog.Error("telemetry shutdown", "err", err)
+			zap.L().Error("telemetry shutdown", zap.Error(err))
 		}
 	}()
 
@@ -80,18 +80,20 @@ func main() {
 		backendAddr = "http://localhost:8081"
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /rolldice", rolldiceHandler(backendAddr))
-
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: otelhttp.NewHandler(mux, "frontend"),
-	}
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	e.Use(otelecho.Middleware("frontend", otelecho.WithOnError(func(c echo.Context, err error) {
+		if !c.Response().Committed {
+			c.Error(err)
+		}
+	})))
+	e.GET("/rolldice", rolldiceHandler(backendAddr))
 
 	go func() {
-		slog.Info("frontend starting", "port", port, "backend", backendAddr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("listen error", "err", err)
+		zap.L().Info("frontend starting", zap.String("port", port), zap.String("backend", backendAddr))
+		if err := e.Start(":" + port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			zap.L().Error("listen error", zap.Error(err))
 			os.Exit(1)
 		}
 	}()
@@ -102,9 +104,9 @@ func main() {
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutCtx); err != nil {
-		slog.Error("shutdown error", "err", err)
+	if err := e.Shutdown(shutCtx); err != nil {
+		zap.L().Error("shutdown error", zap.Error(err))
 		os.Exit(1)
 	}
-	slog.Info("frontend stopped")
+	zap.L().Info("frontend stopped")
 }

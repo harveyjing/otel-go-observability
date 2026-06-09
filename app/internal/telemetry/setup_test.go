@@ -2,13 +2,14 @@ package telemetry
 
 import (
 	"context"
-	"log/slog"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func TestSetup_returnsShutdown(t *testing.T) {
-	original := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(original) })
+	original := zap.L()
+	t.Cleanup(func() { zap.ReplaceGlobals(original) })
 	// point at a port with nothing listening — exporter connects lazily
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:19999")
 

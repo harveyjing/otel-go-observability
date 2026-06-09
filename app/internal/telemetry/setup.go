@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"os"
 
-	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
@@ -18,12 +18,14 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Setup initialises all three OTel providers (traces, metrics, logs) against
 // OTEL_EXPORTER_OTLP_ENDPOINT (default localhost:4317, insecure gRPC), registers
-// them globally, and replaces the slog default handler with the OTel bridge so
-// every slog call carries trace_id/span_id when a span is active.
+// them globally, and replaces the zap global logger with an otelzap tee core so
+// every zap.L() call carries trace_id/span_id when a span is active.
 // Call the returned shutdown func (with a deadline context) in main's defer.
 func Setup(ctx context.Context, serviceName string) (shutdown func(context.Context) error, err error) {
 	res, err := resource.New(ctx,
@@ -85,8 +87,15 @@ func Setup(ctx context.Context, serviceName string) (shutdown func(context.Conte
 		propagation.Baggage{},
 	))
 
-	// Route slog through the OTel bridge — must come after SetLoggerProvider
-	slog.SetDefault(slog.New(otelslog.NewHandler(serviceName)))
+	// Route zap through the OTel bridge — must come after SetLoggerProvider
+	consoleCore := zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.AddSync(os.Stdout),
+		zap.InfoLevel,
+	)
+	otelCore := otelzap.NewCore(serviceName)
+	logger := zap.New(zapcore.NewTee(consoleCore, otelCore), zap.AddCaller())
+	zap.ReplaceGlobals(logger)
 
 	return func(ctx context.Context) error {
 		return errors.Join(

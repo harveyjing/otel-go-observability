@@ -2,35 +2,45 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.uber.org/zap"
 
 	"dice/internal/dice"
 	"dice/internal/telemetry"
 )
 
+// Context-aware logging with otelzap:
+// zap v1.28.0 does NOT have InfoContext/ErrorContext methods on *zap.Logger.
+// To attach a request context for trace correlation when using the otelzap bridge,
+// pass the context as a zap field using zap.Any("ctx", ctx) — otelzap's core.go
+// intercepts any field whose Interface value satisfies context.Context and uses it
+// as the emit context, so the active span's trace/span IDs are propagated to the
+// OTel log record automatically. Example in a handler:
+//
+//	ctx := c.Request().Context()
+//	zap.L().Info("dice rolled", zap.Any("ctx", ctx), zap.Int("result", n))
+
 type rollResponse struct {
 	Result int `json:"result"`
 }
 
-func rollHandler(counter metric.Int64Counter) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func rollHandler(counter metric.Int64Counter) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		n := dice.Roll()
-		counter.Add(r.Context(), 1, metric.WithAttributes(attribute.Int("result", n)))
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(rollResponse{Result: n}); err != nil {
-			slog.ErrorContext(r.Context(), "encode response", "err", err)
-		}
+		counter.Add(c.Request().Context(), 1, metric.WithAttributes(attribute.Int("result", n)))
+		return c.JSON(http.StatusOK, rollResponse{Result: n})
 	}
 }
 
@@ -38,14 +48,14 @@ func main() {
 	ctx := context.Background()
 	shutdown, err := telemetry.Setup(ctx, "backend")
 	if err != nil {
-		slog.Error("telemetry setup", "err", err)
+		fmt.Fprintf(os.Stderr, "telemetry setup failed: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := shutdown(shutCtx); err != nil {
-			slog.Error("telemetry shutdown", "err", err)
+			zap.L().Error("telemetry shutdown", zap.Error(err))
 		}
 	}()
 
@@ -60,22 +70,24 @@ func main() {
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		slog.Error("create roll counter", "err", err)
+		zap.L().Error("create roll counter", zap.Error(err))
 		os.Exit(1)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /roll", rollHandler(rollCounter))
-
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: otelhttp.NewHandler(mux, "backend"),
-	}
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	e.Use(otelecho.Middleware("backend", otelecho.WithOnError(func(c echo.Context, err error) {
+		if !c.Response().Committed {
+			c.Error(err)
+		}
+	})))
+	e.GET("/roll", rollHandler(rollCounter))
 
 	go func() {
-		slog.Info("backend starting", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("listen error", "err", err)
+		zap.L().Info("backend starting", zap.String("port", port))
+		if err := e.Start(":" + port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			zap.L().Error("listen error", zap.Error(err))
 			os.Exit(1)
 		}
 	}()
@@ -86,9 +98,9 @@ func main() {
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutCtx); err != nil {
-		slog.Error("shutdown error", "err", err)
+	if err := e.Shutdown(shutCtx); err != nil {
+		zap.L().Error("shutdown error", zap.Error(err))
 		os.Exit(1)
 	}
-	slog.Info("backend stopped")
+	zap.L().Info("backend stopped")
 }
