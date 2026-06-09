@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bootstrap-cluster.sh — creates kind cluster and installs the observability stack.
-# The demo apps (service-a-spring, service-b-agent) run on localhost via run-apps.sh.
+# The dice apps (frontend :8080, backend :8081) run on localhost via run-apps.sh.
 set -euo pipefail
 
 CLUSTER=otelpoc
@@ -46,10 +46,17 @@ helm upgrade --install otel-collector open-telemetry/opentelemetry-collector \
   --values "$HERE/deploy/helm-values/otel-collector-values.yaml" \
   --wait --timeout 5m
 
-echo "==> Installing Grafana dashboard"
+echo "==> Installing Grafana dashboards"
 kubectl create configmap otel-poc-dashboard \
   --namespace observability \
   --from-file=otelpoc.json="$HERE/deploy/grafana/dashboard.json" \
+  --dry-run=client -o yaml | \
+  kubectl label --local --dry-run=client -o yaml -f - grafana_dashboard=1 | \
+  kubectl apply -f -
+
+kubectl create configmap otel-goruntime-dashboard \
+  --namespace observability \
+  --from-file=goruntime.json="$HERE/deploy/grafana/dashboard-go-runtime.json" \
   --dry-run=client -o yaml | \
   kubectl label --local --dry-run=client -o yaml -f - grafana_dashboard=1 | \
   kubectl apply -f -
